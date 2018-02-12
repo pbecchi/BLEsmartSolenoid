@@ -20,7 +20,8 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#include "BLESERVER.h"
+
+#include <bluefruit.h>
 //#include <ESP8266WiFi.h>
 //#include <ESP8266WebServer.h>
 //#include <ESP8266mDNS.h>
@@ -33,6 +34,7 @@
 //#include <esp8266-oled-ssd1306-master\SSD1306.h>
 //#include <i2crtc.h>
 #include "OSBeeWiFi.h"
+#include "BLESERVER.h"
 
 void do_setup();
 void do_loop();

@@ -848,6 +848,26 @@ void do_setup()
    // DEBUG_PRINTLN(osb.options[OPTION_HTP].ival);
   //}
 //  led_blink_ms = LED_FAST_BLINK;  
+//  server.on("/", on_home);
+//  server.on("/index.html", on_home);
+//  server.on("/settings.html", on_sta_view_options);
+//  server.on("/log.html", on_sta_view_logs);
+//  server.on("/manual.html", on_sta_view_manual);
+//  server.on("/program.html", on_sta_view_program);
+//  server.on("/preview.html", on_sta_view_preview);
+ // server.on("/update.html", HTTP_GET, on_sta_update);
+//  server.on("/update", HTTP_POST, on_sta_upload_fin, on_sta_upload);
+  server.on("/jc", on_sta_controller);
+  server.on("/jo", on_sta_options);
+  server.on("/jl", on_sta_logs);
+  server.on("/jp", on_sta_program);
+  server.on("/cc", on_sta_change_controller);
+  server.on("/co", on_sta_change_options);
+  server.on("/cp", on_sta_change_program);
+  server.on("/dp", on_sta_delete_program);
+  server.on("/rp", on_sta_run_program);
+  server.on("/dl", on_sta_delete_log);
+  server.begin();
 }
 /*
 void process_button() {
@@ -1037,6 +1057,7 @@ void time_keeping() {
 */
 void do_loop() {
   static ulong connecting_timeout;
+  server.handleClient();
   /*
   switch(osb.state) {
   case OSB_STATE_INITIAL:
@@ -1148,10 +1169,10 @@ void do_loop() {
   
   }
   */
-  if(curr_mode == OSB_MOD_STA) {
+//  if(curr_mode == OSB_MOD_STA) {
    // time_keeping();
     check_status();
-  }
+ // }
  // process_button();
   
   static ulong last_time = 0;

@@ -25,10 +25,10 @@
 
 #include "OSBeeWiFi.h"
 
-#define MAX_NUM_PROGRAMS      6
+#define MAX_NUM_PROGRAMS      3
 #define MAX_NUM_STARTTIMES    5
-#define PROGRAM_NAME_SIZE    32
-#define MAX_NUM_TASKS        32
+#define PROGRAM_NAME_SIZE    16
+#define MAX_NUM_TASKS        2
 
 #define DAY_TYPE_WEEKLY   0
 #define DAY_TYPE_INTERVAL 1
@@ -105,7 +105,8 @@ public:
   static byte del(byte pid);
 private:
   static void load_count();
-  static void save_count();  
+  static void save_count(byte nprograms);
+ // static void save_count();  
 };
 
 #endif  // _PROGRAM_H_

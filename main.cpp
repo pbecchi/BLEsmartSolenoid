@@ -20,10 +20,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#if defined(SERIAL_DEBUG)
-  #define BLYNK_DEBUG
-  #define BLYNK_PRINT Serial
-#endif
+#define SECS_PER_DAY 24*3600L
 
 #define HTML_OK                0x00
 #define HTML_SUCCESS           0x01
@@ -37,30 +34,83 @@
 #define HTML_UPLOAD_FAILED     0x40
 #define HTML_WRONG_MODE        0x50
 #define HTML_REDIRECT_HOME     0xFF
+
 #include <Arduino.h>
-#include "BLESERVER.h"
-//#include <Blynk/src/BlynkSimpleEsp8266.h>
-#include "TimeLib.h"
+//#include "htmls.h"
+#include "defines.h"
 #include "OSBeeWiFi.h"
-//#include "espconnect.h"
 #include "program.h"
-#include "htmls.h"
 OSBeeWiFi osb;
 ProgramData pd;
+#include "BLESERVER.h"
+
 BLESERVER server;
-/*
-BlynkWifi Blynk(_blynkTransport);
-SSD1306& disp = OSBeeWiFi::display;
 
-static uint16_t led_blink_ms = LED_FAST_BLINK;
+#ifdef NRF52
+#include <bluefruit.h>
+#include <Nffs.h>
 
-WidgetLED blynk_led1(BLYNK_S1);
-WidgetLED blynk_led2(BLYNK_S2);
-WidgetLED blynk_led3(BLYNK_S3);
-WidgetLCD blynk_lcd(BLYNK_LCD);
 
-WidgetLED *blynk_leds[] = {&blynk_led1, &blynk_led2, &blynk_led3};
-*/
+#define MAX_LEVEL   2
+void printTreeDir(const char* cwd, uint8_t level) {
+	// Open the input folder
+	NffsDir dir(cwd);
+
+	// Print root
+	if (level == 0) Serial.println("root");
+
+	// File Entry Information which hold file attribute and name
+	NffsDirEntry dirEntry;
+
+	// Loop through the directory
+	while (dir.read(&dirEntry)) {
+		// Indentation according to dir level
+		for (int i = 0; i<level; i++) Serial.print("|  ");
+
+		Serial.print("|_ ");
+
+		char eName[64];
+		dirEntry.getName(eName, sizeof(eName));
+
+		char fullpath[256];
+		strcpy(fullpath, cwd);
+		strcat(fullpath, "/");
+		strcat(fullpath, eName);
+
+		Serial.print(eName);
+
+		if (dirEntry.isDirectory()) {
+			Serial.println("/");
+
+			// ATTENTION recursive call to print sub folder with level+1 !!!!!!!!
+			// High number of MAX_LEVEL can cause memory overflow
+			if (level < MAX_LEVEL) {
+				printTreeDir(fullpath, level + 1);
+			}
+		} else {
+			// Print file size starting from position 50
+			int pos = level * 3 + 3 + strlen(eName);
+
+			// Print padding
+			for (int i = pos; i<50; i++) Serial.print(' ');
+
+			// Print at least one extra space in case current position > 50
+			Serial.print(' ');
+
+			NffsFile file(fullpath);
+
+			Serial.print(file.size());
+			Serial.println(" Bytes");
+
+			file.close();
+		}
+	}
+
+	dir.close();
+}
+#endif
+
+
 static String scanned_ssids;
 static bool curr_cloud_access_en = false;
 static ulong restart_timeout = 0;
@@ -120,6 +170,7 @@ void append_key_value(String& html, const char* key, const ulong value) {
   html += "\":";
   html += value;
   html += ",";
+  DEBUG_PRINT(html); DEBUG_PRINTLN(value);
 }
 
 void append_key_value(String& html, const char* key, const int16_t value) {
@@ -137,7 +188,14 @@ void append_key_value(String& html, const char* key, const String& value) {
   html += value;
   html += "\",";
 }
+void append_key_value(String& html, const char* key, const char* value) {
 
+	html += "\"";
+	html += key;
+	html += "\":\"";
+	html += value;
+	html += "\",";
+}
 char dec2hexchar(byte dec) {
   if(dec<10) return '0'+dec;
   else return 'A'+(dec-10);
@@ -170,32 +228,25 @@ String get_ap_ssid() {
   }
   return ap_ssid;
 }
-/*
-String get_ip(IPAddress _ip) {
-  String ip = "";
-  ip = _ip[0];
-  ip += ".";
-  ip += _ip[1];
-  ip += ".";
-  ip += _ip[2];
-  ip += ".";
-  ip += _ip[3];
-  return ip;
-}
-*/
+
 bool verify_dkey() {
-  if(curr_mode == OSB_MOD_AP) {
-    server_send_result(HTML_WRONG_MODE);
-    return false;
-  }
-  if(server.hasArg("dkey") && (server.arg("dkey") == osb.options[OPTION_DKEY].sval))
-    return true;
-  server_send_result(HTML_UNAUTHORIZED);
-  return false;
+  //if(curr_mode == OSB_MOD_AP) {
+  //  server_send_result(HTML_WRONG_MODE);
+  //  return false;
+ // }
+
+	if (server.hasArg(F("dkey"))) {
+		String comps = osb.options[OPTION_DKEY].sval;
+		if (server.arg(F("dkey")) == comps)
+		return true;
+		server_send_result(HTML_UNAUTHORIZED);
+		return false;
+	}
+	return true;
 }
 
 int16_t get_pid() {
-  if(curr_mode == OSB_MOD_AP) return -2;
+ // if(curr_mode == OSB_MOD_AP) return -2;
   long v;
   if(get_value_by_key("pid", v)) {
     return v;
@@ -204,7 +255,7 @@ int16_t get_pid() {
     return -2;
   }
 }
-
+/*
 void on_home()
 {
   if(curr_mode == OSB_MOD_AP) {
@@ -259,24 +310,6 @@ void on_ap_change_config() {
     osb.state = OSB_STATE_TRY_CONNECT;
   }
 }
-/*
-void on_ap_try_connect() {
-  if(curr_mode == OSB_MOD_STA) return;
-  String html;
-  html += "{";
-  ulong ip = (WiFi.status()==WL_CONNECTED)?(uint32_t)WiFi.localIP():0;
-  append_key_value(html, "ip", ip);
-  html.remove(html.length()-1);  
-  html += "}";
-  server_send_html(html);
-  if(WiFi.status() == WL_CONNECTED && WiFi.localIP()) {
-    server.handleClient();
-    osb.options[OPTION_MOD].ival = OSB_MOD_STA;
-    osb.options_save();  
-    restart_timeout = millis() + 2000;
-    osb.state = OSB_STATE_RESTART;
-  }
-}
 */
 String get_zone_names_json() {
   String str=F("\"zons\":[");
@@ -291,7 +324,7 @@ String get_zone_names_json() {
 }
 
 void on_sta_controller() {
-  if(curr_mode == OSB_MOD_AP) return;
+ // if(curr_mode == OSB_MOD_AP) return;
   String html;
   html += "{";
   append_key_value(html, "fwv", (int16_t)osb.options[OPTION_FWV].ival);
@@ -315,7 +348,7 @@ void on_sta_controller() {
 }
 
 void on_sta_logs() {
-  if(curr_mode == OSB_MOD_AP) return;
+ // if(curr_mode == OSB_MOD_AP) return;
   String html = "{";
   append_key_value(html, "name", osb.options[OPTION_NAME].sval);
   
@@ -356,15 +389,22 @@ void on_sta_logs() {
 void on_sta_change_controller() {
   if(!verify_dkey())  return;
   
-  if(server.hasArg("reset")) {
+  if(server.hasArg(F("reset"))) {
     server_send_result(HTML_SUCCESS);
     reset_zones();
   }
-  if(server.hasArg("reboot")) {
+  if (server.hasArg(F("FactReset"))) {
+	  server_send_result(HTML_SUCCESS);
+	  osb.options_reset;
+	  restart_timeout = millis() + 1000;
+	  osb.state = OSB_STATE_RESTART;
+  }
+  if(server.hasArg(F("reboot"))) {
     server_send_result(HTML_SUCCESS);
     restart_timeout = millis() + 1000;
     osb.state = OSB_STATE_RESTART;
   }  
+
 }
 
 // convert absolute remainder (reference time 1970 01-01) to relative remainder (reference time today)
@@ -398,7 +438,131 @@ long parse_listdata(const String& s, uint16_t& pos) {
   pos = p+1;
   return atol(tmp);
 }
+#ifdef OS217
+uint16_t parse_listdata ( char **p )
+{
+	char tmp_buffer[100];
+char* pv;
+int i=0;
+tmp_buffer[i]=0;
+// copy to tmp_buffer until a non-number is encountered
+for ( pv= ( *p ); pv< ( *p )+10; pv++ )
+{
+if ( ( *pv ) =='-' || ( *pv ) =='+' || ( ( *pv ) >='0'&& ( *pv ) <='9' ) )
+tmp_buffer[i++] = ( *pv );
+else
+break;
+}
+tmp_buffer[i]=0;
+*p = pv+1;
+return ( uint16_t ) atol ( tmp_buffer );
+}
 
+//byte server_change_program ( char *p )
+byte OSProg(ProgramStruct &prog,char *p)
+{
+    byte i;
+
+ //   ProgramStruct prog;
+
+    // parse program index
+ //   if ( !findKeyVal ( p, tmp_buffer, TMP_BUFFER_SIZE, PSTR ( "pid" ), true ) )
+  //  {
+ //       return HTML_DATA_MISSING;
+ //   }
+ //   int pid=atoi ( tmp_buffer );
+ //   if ( ! ( pid>=-1 && pid< pd.nprograms ) ) return HTML_DATA_OUTOFBOUND;
+//
+    // parse program name
+ //   if ( findKeyVal ( p, tmp_buffer, TMP_BUFFER_SIZE, PSTR ( "name" ), true ) )
+  //  {
+//        urlDecode ( tmp_buffer );
+  //      strncpy ( prog.name, tmp_buffer, PROGRAM_NAME_SIZE );
+  //  }
+   // else
+   // {
+   //     strcpy_P ( prog.name, _str_program );
+   //     itoa ( ( pid==-1 ) ? ( pd.nprograms+1 ) : ( pid+1 ), prog.name+8, 10 );
+   // }
+
+    // do a full string decoding
+ //   urlDecode ( p );
+
+    // parse ad-hoc v=[...
+    // search for the start of v=[
+    char *pv;
+    boolean found=false;
+
+    for ( pv=p; ( *pv ) !=0 && pv<p+100; pv++ )
+    {
+        if ( strncmp ( pv, "v=[", 3 ) ==0 )
+        {
+            found=true;
+            break;
+        }
+    }
+
+    if ( !found )  return HTML_DATA_MISSING;
+    pv+=3;
+    // parse headers
+	//parse flags to be modified
+   // * ( char* ) ( &prog ) 
+	int v= parse_listdata(&pv);
+	// parse config bytes
+	prog.enabled = v & 0x01;
+	prog.sttype = (v >> 1) & 0x01;
+	prog.restr = (v >> 2) & 0x03;
+	prog.daytype = (v >> 4) & 0x03;
+//	prog.days[0] = (v >> 8) & 0xFF;
+//	prog.days[1] = (v >> 16) & 0xFF;
+	
+    prog.days[0]= parse_listdata ( &pv );
+    prog.days[1]= parse_listdata ( &pv );
+	if (prog.daytype == DAY_TYPE_INTERVAL && prog.days[1] > 1) {
+		drem_to_absolute(prog.days);
+	}
+	// parse start times
+    pv++; // this should be a '['
+    for ( i=0; i<MAX_NUM_STARTTIMES; i++ )
+    {
+        prog.starttimes[i] = parse_listdata ( &pv );
+    }
+    pv++; // this should be a ','
+    pv++; // this should be a '['
+    for ( i=0; i<MAX_NUM_TASKS; i++ )
+    {
+        uint16_t pre = parse_listdata ( &pv );
+        prog.tasks[i].dur =  pre ;
+    }
+    pv++; // this should be a ']'
+    pv++; // this should be a ']'
+    // parse program name
+
+    // i should be equal to os.nstations at this point
+ //   for ( ; i<MAX_NUM_TASKS; i++ )
+  //  {
+   //     prog.tasks[i].dur = 0;     // clear unused field
+   // }
+
+    // process interval day remainder (relative-> absolute)
+    //if ( prog.type == PROGRAM_TYPE_INTERVAL && prog.days[1] > 1 )
+   // {
+   //     pd.drem_to_absolute ( prog.days );
+   // }
+
+ //   if ( pid==-1 )
+ //   {
+ //       if ( !pd.add ( &prog ) )
+ //           return HTML_DATA_OUTOFBOUND;
+ //   }
+ //   else
+ //   {
+ //       if ( !pd.modify ( pid, &prog ) )
+ //           return HTML_DATA_OUTOFBOUND;
+ //   }
+ //   return HTML_SUCCESS;
+}
+#endif
 void on_sta_change_program() {
   if(!verify_dkey())  return;
   int16_t pid = get_pid();
@@ -428,10 +592,11 @@ void on_sta_change_program() {
   String sv;
   if(get_value_by_key("sts", sv)) {
     // parse start times
-    uint16_t pos=1;
+    uint16_t pos=0;
     byte i;
-    for(i=0;i<MAX_NUM_STARTTIMES;i++) {
-      prog.starttimes[i] = parse_listdata(sv, pos);
+	for (i = 0; i<MAX_NUM_STARTTIMES; i++) {
+		prog.starttimes[i] = parse_listdata(sv, pos);
+    
     }
     if(prog.starttimes[0] < 0) {
       server_send_result(HTML_DATA_OUTOFBOUND, "sts[0]");
@@ -455,7 +620,7 @@ void on_sta_change_program() {
   
   if(get_value_by_key("pt", sv)) {
     byte i=0;
-    uint16_t pos=1;
+    uint16_t pos=0;
     for(i=0;i<prog.ntasks;i++) {
       ulong e = parse_listdata(sv, pos);
       prog.tasks[i].zbits = e&0xFF;
@@ -467,7 +632,7 @@ void on_sta_change_program() {
   }
   
   if(!get_value_by_key("name", sv)) {
-    sv = "Program ";
+    sv =F( "Program ");
     sv += (pid==-1) ? (pd.nprogs+1) : (pid+1);
   }
   strncpy(prog.name, sv.c_str(), PROGRAM_NAME_SIZE);
@@ -541,12 +706,13 @@ void on_sta_run_program() {
 }
 
 void on_sta_change_options() {
-  if(!verify_dkey())  return;
+	DEBUG_PRINTLN("change opt");
+	if(!verify_dkey())  return;
   long ival = 0;
   String sval;
   byte i;
   OptionStruct *o = osb.options;
-  
+ 
   // FIRST ROUND: check option validity
   // do not save option values yet
   for(i=0;i<NUM_OPTIONS;i++,o++) {
@@ -558,12 +724,14 @@ void on_sta_change_options() {
     
     if(o->max) {  // integer options
       if(get_value_by_key(key, ival)) {
+		 
         if(ival>o->max) {
           server_send_result(HTML_DATA_OUTOFBOUND, key);
           return;
         }
       }
     }
+
   }
   
   
@@ -596,10 +764,12 @@ void on_sta_change_options() {
     if(o->max) {  // integer options
       if(get_value_by_key(key, ival)) {
         o->ival = ival;
+		DEBUG_PRINTLN(ival);
       }
     } else {
       if(get_value_by_key(key, sval)) {
         o->sval = sval;
+		DEBUG_PRINTLN(ival);
       }
     }
   }
@@ -607,23 +777,32 @@ void on_sta_change_options() {
   if(get_value_by_key(_nkey, nkey)) {
       osb.options[OPTION_DKEY].sval = nkey;
   }
+#ifdef NFR52
 
+  Nffs.remove(CONFIG_FNAME);
+#endif  
   osb.options_save();
   server_send_result(HTML_SUCCESS);
 }
 
 void on_sta_options() {
-  if(curr_mode == OSB_MOD_AP) return;
+	DEBUG_PRINTLN("set options");
+//  if(curr_mode == OSB_MOD_AP) return;
   String html = "{";
   OptionStruct *o = osb.options;
   for(byte i=0;i<NUM_OPTIONS;i++,o++) {
+	  DEBUG_PRINTLN(o->name);
     if(!o->max) {
       if(i==OPTION_NAME || i==OPTION_AUTH) {  // only output selected string options
-        append_key_value(html, o->name.c_str(), o->sval);
+		  DEBUG_PRINT("sv="); DEBUG_PRINTLN(o->sval);
+
+      append_key_value( html, o->name.c_str(), o->sval);
       }
     } else {  // if this is a int option
-      append_key_value(html, o->name.c_str(), (ulong)o->ival);
+		DEBUG_PRINT("iv="); DEBUG_PRINTLN(o->ival);
+		append_key_value(html, o->name.c_str(), (ulong)o->ival);
     }
+	DEBUG_PRINTLN(html);
   }
   // output zone names
   html += get_zone_names_json();
@@ -681,57 +860,6 @@ void on_sta_program() {
   server_send_html(html);
 }
 
-/*
-void on_sta_update() {
-  String html = (update_html);
-  server_send_html(html);
-}
-
-void on_sta_upload_fin() {
-  if(!verify_dkey()) {
-    Update.reset();
-    return;
-  }
-
-  // finish update and check error
-  if(!Update.end(true) || Update.hasError()) {
-    server_send_result(HTML_UPLOAD_FAILED);
-    return;
-  }
- 
-  server_send_result(HTML_SUCCESS);
-  restart_timeout = millis();
-  osb.state = OSB_STATE_RESTART;
-}
-
-void on_sta_upload() {
-  HTTPUpload& upload = server.upload();
-  if(upload.status == UPLOAD_FILE_START){
-    WiFiUDP::stopAll();
-    DEBUG_PRINT(F("prepare to upload: "));
-    DEBUG_PRINTLN(upload.filename);
-    uint32_t maxSketchSpace = (ESP.getFreeSketchSpace()-0x1000)&0xFFFFF000;
-    if(!Update.begin(maxSketchSpace)) {
-      DEBUG_PRINTLN(F("not enough space"));
-    }
-    
-  } else if(upload.status == UPLOAD_FILE_WRITE) {
-    DEBUG_PRINT(".");
-    if(Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-      DEBUG_PRINTLN(F("size mismatch"));
-    }
-      
-  } else if(upload.status == UPLOAD_FILE_END) {
-    
-    DEBUG_PRINTLN(F("upload completed"));
-   
-  } else if(upload.status == UPLOAD_FILE_ABORTED){
-    Update.end();
-    DEBUG_PRINTLN(F("upload aborted"));
-  }
-  delay(0);    
-}
-*/
 void on_sta_delete_log() {
   if(!verify_dkey())  return;
   osb.log_reset();
@@ -825,28 +953,68 @@ void start_program(byte pid) {
   schedule_run_program();
 }
 
+void check_status() {
+	static ulong checkstatus_timeout = 0;
+	if (curr_utc_time > checkstatus_timeout) {
+		if (curr_cloud_access_en /*&& Blynk.connected()*/) {
+			byte i, zbits;
+			for (i = 0; i<MAX_NUMBER_ZONES; i++) {
+				zbits = osb.curr_zbits;
+				//  if((zbits>>i)&1) blynk_leds[i]->on();
+				// else blynk_leds[i]->off();
+			}
+			if (osb.program_busy) {
+				String str = F("Prog ");
+				if (pd.curr_prog_index == TESTZONE_PROGRAM_INDEX) {
+					str += F("T");
+				} else if (pd.curr_prog_index == QUICK_PROGRAM_INDEX) {
+					str += F("Q");
+				} else if (pd.curr_prog_index == MANUAL_PROGRAM_INDEX) {
+					str += F("M");
+				} else {
+					str += (pd.curr_prog_index + 1);
+				}
+				str += F(": ");
+				str += toHMS(pd.curr_prog_remaining_time);
+				//     blynk_lcd.print(0, 0, str);
+
+				str = F("Task ");
+				str += (pd.curr_task_index + 1);
+				str += F(": ");
+				str += toHMS(pd.curr_task_remaining_time);
+				//    blynk_lcd.print(0, 1, str);
+			} else {
+				//  blynk_lcd.print(0, 0, "[Idle]          ");
+				//  blynk_lcd.print(0, 1, get_ip(WiFi.localIP())+F("      "));
+			}
+		}
+		if (osb.program_busy)  checkstatus_timeout = curr_utc_time + 2;  // when program is running, update more frequently
+		else checkstatus_timeout = curr_utc_time + 5;
+	}
+}
+
+
 void do_setup()
 {
-  DEBUG_BEGIN(115200);
-//if(server) {
-//    delete server;
-//    server = NULL;
-//  }
- // WiFi.persistent(false); // turn off persistent, fixing flash crashing issue  
+  Serial.begin(115200);
+  Serial.println(F("SmartSolenoid"));
+  delay(1000);
+  while (!Serial.available()) delay(100);
   osb.begin();
+  
+  DEBUG_PRINTLN("Opt setup");
   osb.options_setup();
   // close all zones at the beginning.
-  for(byte i=0;i<MAX_NUMBER_ZONES;i++) {
-    osb.close(i);
-  }  
+  for (byte i = 0; i<MAX_NUMBER_ZONES; i++) {
+	  osb.close(i);
+  }
+  DEBUG_PRINTLN("PD setup");
   pd.init();
-  curr_cloud_access_en = osb.get_cloud_access_en();
   curr_mode = osb.get_mode();
-  //if(!server) {
-   // server = new BLESERVER;
-   // DEBUG_PRINT(F("server started @ "));
-   // DEBUG_PRINTLN(osb.options[OPTION_HTP].ival);
-  //}
+
+
+//curr_cloud_access_en = osb.get_cloud_access_en();
+
 //  led_blink_ms = LED_FAST_BLINK;  
 //  server.on("/", on_home);
 //  server.on("/index.html", on_home);
@@ -867,86 +1035,15 @@ void do_setup()
   server.on("/dp", on_sta_delete_program);
   server.on("/rp", on_sta_run_program);
   server.on("/dl", on_sta_delete_log);
+  DEBUG_PRINTLN("BLE setup");
   server.begin();
-}
-/*
-void process_button() {
-  // process button
-  static ulong button_down_time = 0;
-  if(osb.get_button() == LOW) {
-    if(!button_down_time) {
-      button_down_time = millis();
-    } else {
-      if(millis() > button_down_time + BUTTON_RESET_TIMEOUT) {
-        // signal reset
-        disp.clear();
-        osb.boldFont(true);
-        disp.drawString(0, 0, "Resetting...");
-        disp.display();
-  //      led_blink_ms = 0;
-        osb.set_led(HIGH);
-      }
-    }
-  } else {
-    if (button_down_time > 0) {
-      ulong curr = millis();
-      if(curr > button_down_time + BUTTON_RESET_TIMEOUT) {
-        osb.state = OSB_STATE_RESET;
-      } else if(curr > button_down_time + 50) {
-        disp_mode = (disp_mode+1) % NUM_DISP_MODES;
-      }
-      button_down_time = 0;
-    }
-  } 
-  // process led
-  static ulong led_toggle_timeout = 0;
-  if(led_blink_ms) {
-    if(millis() > led_toggle_timeout) {
-      // toggle led
-      osb.toggle_led();
-      led_toggle_timeout = millis() + led_blink_ms;
-    }
-  }
-}
-*/
-void check_status() {
-  static ulong checkstatus_timeout = 0;
-  if(curr_utc_time > checkstatus_timeout) {
-    if(curr_cloud_access_en /*&& Blynk.connected()*/) {
-      byte i, zbits;
-      for(i=0;i<MAX_NUMBER_ZONES;i++) {
-        zbits = osb.curr_zbits;
-      //  if((zbits>>i)&1) blynk_leds[i]->on();
-       // else blynk_leds[i]->off();
-      }
-      if(osb.program_busy) {
-        String str = F("Prog ");
-        if(pd.curr_prog_index==TESTZONE_PROGRAM_INDEX) {
-          str += F("T");
-        } else if(pd.curr_prog_index==QUICK_PROGRAM_INDEX) {
-          str += F("Q");
-        } else if(pd.curr_prog_index==MANUAL_PROGRAM_INDEX) {
-          str += F("M");
-        } else {
-          str += (pd.curr_prog_index+1);
-        }
-        str += F(": ");        
-        str += toHMS(pd.curr_prog_remaining_time);
-   //     blynk_lcd.print(0, 0, str);
-        
-        str = F("Task ");
-        str += (pd.curr_task_index+1);
-        str += F(": ");
-        str += toHMS(pd.curr_task_remaining_time);
-    //    blynk_lcd.print(0, 1, str);
-      } else {
-      //  blynk_lcd.print(0, 0, "[Idle]          ");
-      //  blynk_lcd.print(0, 1, get_ip(WiFi.localIP())+F("      "));
-      }
-    }
-    if(osb.program_busy)  checkstatus_timeout = curr_utc_time + 2;  // when program is running, update more frequently
-    else checkstatus_timeout = curr_utc_time + 5;
-  }
+
+  Serial.println(F("BLE READY"));
+#ifdef NRF52
+  printTreeDir("/", 0);
+#endif
+
+  Serial.println(F("END setup"));
 }
 
 /*
@@ -1056,119 +1153,10 @@ void time_keeping() {
 }
 */
 void do_loop() {
+
   static ulong connecting_timeout;
   server.handleClient();
-  /*
-  switch(osb.state) {
-  case OSB_STATE_INITIAL:
-    if(curr_mode == OSB_MOD_AP) {
-      scanned_ssids = scan_network();
-      String ap_ssid = get_ap_ssid();
-      start_network_ap(ap_ssid.c_str(), NULL);
-      server.on("/",   on_home);    
-      server.on("/js", on_ap_scan);
-      server.on("/cc", on_ap_change_config);
-      server.on("/jt", on_ap_try_connect);
-      server.begin();
-      osb.state = OSB_STATE_CONNECTED;
-      DEBUG_PRINTLN(WiFi.softAPIP());
-      disp.clear();
-      osb.boldFont(true);
-      disp.drawString(0, 0, "AP Mode");
-      osb.boldFont(false);
-      disp.drawString(0, 16, "SSID: "+ap_ssid);
-      disp.drawString(0, 32, "APIP: "+get_ip(WiFi.softAPIP()));
-      disp.display();
-    } else {
-      led_blink_ms = 0;
-      osb.set_led(LOW);
-      start_network_sta(osb.options[OPTION_SSID].sval.c_str(), osb.options[OPTION_PASS].sval.c_str());
-      osb.state = OSB_STATE_CONNECTING;
-      connecting_timeout = millis() + 60000;
-    }
-    break;
-  case OSB_STATE_TRY_CONNECT:
-    led_blink_ms = LED_SLOW_BLINK;  
-    start_network_sta_with_ap(osb.options[OPTION_SSID].sval.c_str(), osb.options[OPTION_PASS].sval.c_str());    
-    osb.state = OSB_STATE_CONNECTED;
-    break;
-    
-  case OSB_STATE_CONNECTING:
-    if(WiFi.status() == WL_CONNECTED) {
-      server.on("/", on_home);
-      server.on("/index.html", on_home);
-      server.on("/settings.html", on_sta_view_options);
-      server.on("/log.html", on_sta_view_logs);
-      server.on("/manual.html", on_sta_view_manual);
-      server.on("/program.html", on_sta_view_program);
-      server.on("/preview.html", on_sta_view_preview);
-      server.on("/update.html", HTTP_GET, on_sta_update);
-      server.on("/update", HTTP_POST, on_sta_upload_fin, on_sta_upload);
-      server.on("/jc", on_sta_controller);
-      server.on("/jo", on_sta_options);
-      server.on("/jl", on_sta_logs);
-      server.on("/jp", on_sta_program);
-      server.on("/cc", on_sta_change_controller);
-      server.on("/co", on_sta_change_options);
-      server.on("/cp", on_sta_change_program);
-      server.on("/dp", on_sta_delete_program);
-      server.on("/rp", on_sta_run_program);
-      server.on("/dl", on_sta_delete_log);
-      server.begin();
 
-      if(curr_cloud_access_en) {
-        Blynk.begin(osb.options[OPTION_AUTH].sval.c_str());
-        Blynk.connect();
-      }
-      osb.state = OSB_STATE_CONNECTED;      
-      led_blink_ms = 0;
-      osb.set_led(LOW);
-          
-      DEBUG_PRINTLN(WiFi.localIP());
-    } else {
-      if(millis() > connecting_timeout) {
-        osb.state = OSB_STATE_INITIAL;
-        DEBUG_PRINTLN(F("timeout"));
-      }
-    }
-    break;
-  
-  case OSB_STATE_CONNECTED:
-    if(curr_mode == OSB_MOD_AP)
-      server.handleClient();
-    else {
-      if(WiFi.status() == WL_CONNECTED) {
-        server.handleClient();
-        if(curr_cloud_access_en)
-          Blynk.run();
-      } else {
-        osb.state = OSB_STATE_INITIAL;
-      }
-    }
-    break;
-    
-  case OSB_STATE_RESTART:
-    server.handleClient();
-    if(millis() > restart_timeout) {
-      osb.state = OSB_STATE_INITIAL;
-      osb.restart();
-    }
-    break;
-    
-  case OSB_STATE_RESET:
-    server.handleClient();
-    DEBUG_PRINTLN(F("reset"));
-    osb.options_reset();
-    osb.log_reset();
-    restart_timeout = millis();
-    osb.state = OSB_STATE_RESTART;
-    disp.drawString(0, 16, "done.");
-    disp.drawString(0, 32, "Rebooting...");    
-    disp.display();
-    break;
-  
-  }
-  */
 //  if(curr_mode == OSB_MOD_STA) {
    // time_keeping();
     check_status();
@@ -1227,6 +1215,7 @@ void do_loop() {
     osb.apply_zbits();
   }
 }
+
 /*
 // Handle Blynk Requests
 static byte  blynk_test_zone = 255;

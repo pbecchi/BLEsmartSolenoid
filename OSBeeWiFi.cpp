@@ -19,19 +19,19 @@
  * along with this program.  If not, see
  * <http://www.gnu.org/licenses/>.
  */
-
+#include <Arduino.h>
 #include "OSBeeWiFi.h"
-#include "font.h"
-#include "images.h"
+//#include "font.h"
+//#include "images.h"
 #include "program.h"
-
+//static NffsFile file;
 byte OSBeeWiFi::state = OSB_STATE_INITIAL;
 byte OSBeeWiFi::has_rtc = false;
 byte OSBeeWiFi::curr_zbits = 0;
 byte OSBeeWiFi::next_zbits = 0;
 byte OSBeeWiFi::program_busy = 0;
-File OSBeeWiFi::log_file;
-File OSBeeWiFi::prog_file;
+//File OSBeeWiFi::log_file;
+//File OSBeeWiFi::prog_file;
 byte OSBeeWiFi::st_pins[] = {PIN_ZS0, PIN_ZS1, PIN_ZS2};
 ulong OSBeeWiFi::open_tstamp[]={0,0,0};
 ulong OSBeeWiFi::curr_utc_time = 0;
@@ -68,26 +68,26 @@ ulong OSBeeWiFi::curr_loc_time() {
 }
 
 void OSBeeWiFi::begin() {
-
+	DEBUG_PRINTLN("pin setup");
   digitalWrite(PIN_BST_PWR, LOW);
   pinMode(PIN_BST_PWR, OUTPUT);
 
   digitalWrite(PIN_BST_EN, LOW);
-  pinMode(PIN_BST_EN, OUTPUT);
-
+  DEBUG_PRINTLN("output setup");
   setallpins(HIGH);
   
   state = OSB_STATE_INITIAL;
-  
-  if(!Nffs.begin()) {
+#ifdef NRF52
+  DEBUG_PRINTLN("BLE  setup");
+   Bluefruit.begin();
+  DEBUG_PRINTLN("Nffs  setup");
+
+ if(!  Nffs.begin())
+ {
     DEBUG_PRINTLN(F("failed to mount file system!"));
   }
-  
-  //display.init();
-  //display.flipScreenVertically();
-  
-//  flashScreen();
-  
+ if (!Nffs.testFile(config_fname))Nffs.format();
+#endif
 //  if(RTC.detect()) {
 //    has_rtc = true;
 //    DEBUG_PRINTLN("RTC detected");
@@ -99,23 +99,6 @@ void OSBeeWiFi::begin() {
   }
 
 }
-/*
-void OSBeeWiFi::boldFont(bool bold) {
-  if(bold) display.setFont(Noto_Sans_Bold_12);
-  else display.setFont(Noto_Sans_12);
-
-};
-
-
-
-void OSBeeWiFi::flashScreen() {
-  boldFont(true);
-  display.drawString(0, 0, "OpenSprinkler Bee");
-  display.drawXbm(34, 24, WiFi_Logo_width, WiFi_Logo_height, WiFi_Logo_bits);
-  display.display();
-  boldFont(false);  
-}
-*/
 void OSBeeWiFi::boost() {
   // turn on boost converter for 500ms
   digitalWrite(PIN_BST_PWR, HIGH);
@@ -142,41 +125,87 @@ void OSBeeWiFi::setallpins(byte value) {
 }
 
 void OSBeeWiFi::options_setup() {
+	
+#ifdef NRF52
 	NffsFile file;
-	file.open(config_fname, FS_ACCESS_WRITE);
-  if(!file.exists()) { // if config file does not exist
-    options_save(); // save default option values
-    return;
-  } 
-  options_load();
-  
-  if(options[OPTION_FWV].ival != OSB_FWV)  {
-    // if firmware version has changed
-    // re-save options, thus preserving
-    // shared options with previous firmwares
-    options[OPTION_FWV].ival = OSB_FWV;
-    options_save();
-    return;
-  }
-}
+	if (!Nffs.testFile(config_fname)) { // if config file does not exist
+		file.open(config_fname, FS_ACCESS_WRITE);
+#else
+	DEBUG_PRINTLN(eeprom_read_byte(0));
+		if(resetcond){
+			eeprom_write_byte(0, 127);
+#endif
+			options_save(); // save default option values
 
+		return;
+	}
+//	DEBUG_PRINTLN("load options");
+//	file.open(config_fname, FS_ACCESS_READ);
+	options_load();
+
+	if (options[OPTION_FWV].ival != OSB_FWV) {
+		// if firmware version has changed
+		// re-save options, thus preserving
+		// shared options with previous firmwares
+//		Nffs.remove(config_fname);
+		options[OPTION_FWV].ival = OSB_FWV;
+		options_save();
+		return;
+	}
+}
+int8_t OSBeeWiFi::find_option(String name) {
+	for (byte i = 0; i<NUM_OPTIONS; i++) {
+		String comp = options[i].name;
+	//	DEBUG_PRINT(comp); DEBUG_PRINT(comp.length()); DEBUG_PRINT(name); DEBUG_PRINTLN(name.length());
+		if (name == comp) {
+			return i;
+		}
+	}
+	return -1;
+}
+#define OPTIONS_ADDR 10
+#define OPTION_SIZE 10
+#ifndef NRF52
+void OSBeeWiFi::options_save() {
+	OptionChar MyOptions;
+	DEBUG_PRINT("eeprom write");
+	for (byte i = 0; i < NUM_OPTIONS; i++) {
+		strcpy(MyOptions.name, options[i].name.c_str());
+		strcpy(MyOptions.sval, options[i].sval.c_str());
+		MyOptions.ival = options[i].ival;
+		MyOptions.max = options[i].max;
+		DEBUG_PRINT(options[i].name); DEBUG_PRINT(options[i].ival);
+		eeprom_write_block((void *)&MyOptions, (void *)(OPTIONS_ADDR + sizeof(MyOptions)*i), sizeof(MyOptions));
+		 DEBUG_PRINTLN(MyOptions.sval);
+	}
+}
+void OSBeeWiFi::options_load() {
+	//eeprom_read_block((void *)options, (void *)10, sizeof(options));
+	OptionChar MyOptions;
+	DEBUG_PRINT("eeprom raed");
+	for (byte i = 0; i < NUM_OPTIONS; i++) {
+		eeprom_read_block((void *)&MyOptions, (void *)(OPTIONS_ADDR + sizeof(MyOptions)*i), sizeof(MyOptions));
+	
+		options[i].name = MyOptions.name;
+		options[i].sval = MyOptions.sval;
+		options[i].ival = MyOptions.ival;
+		options[i].max = MyOptions.max;
+		DEBUG_PRINT(options[i].name); DEBUG_PRINT(options[i].ival); DEBUG_PRINTLN(MyOptions.sval);
+
+	}
+}
+void OSBeeWiFi::options_reset() { 
+	eeprom_write_byte(0, 0);  }
+void OSBeeWiFi::progs_reset() { ; }
+#else
 void OSBeeWiFi::options_reset() {
   DEBUG_PRINT(F("reset to factory default..."));
- 
-  if(!Nffs.remove(config_fname)) {
+   if(!Nffs.remove(config_fname)) {
     DEBUG_PRINT(F("failed to remove config file"));
     return;
   }
   DEBUG_PRINTLN(F("ok"));
 }
-
-void OSBeeWiFi::log_reset() {
-  if(!Nffs.remove(log_fname)) {
-    DEBUG_PRINTLN(F("failed to remove log file"));
-    return;
-  }
-}
-
 void OSBeeWiFi::progs_reset() {
   if(!Nffs.remove(prog_fname)) {
     DEBUG_PRINTLN(F("failed to remove program file"));
@@ -185,14 +214,6 @@ void OSBeeWiFi::progs_reset() {
   DEBUG_PRINTLN(F("ok"));    
 }
 
-int8_t OSBeeWiFi::find_option(String name) {
-  for(byte i=0;i<NUM_OPTIONS;i++) {
-    if(name == options[i].name) {
-      return i;
-    }
-  }
-  return -1;
-}
 
 void OSBeeWiFi::options_load() {
 	NffsFile file;
@@ -202,62 +223,106 @@ void OSBeeWiFi::options_load() {
     DEBUG_PRINTLN(F("failed"));
     return;
   }
-  while(file.available()) {
-    String name = file.readStringUntil(':');
-    String sval = file.readStringUntil('\n');
-    sval.trim();
-    int8_t idx = find_option(name);
-    if(idx<0) continue;
-    if(options[idx].max) {  // this is an integer option
-      options[idx].ival = sval.toInt();
-    } else {  // this is a string option
-      options[idx].sval = sval;
-    }
+#ifndef BADNFFS
+  while (file.available()) {
+	  String name = file.readStringUntil(':');
+	  String sval = file.readStringUntil('\n');
+	  sval.trim();
+	  name.trim();
+	 
+	  int8_t idx = find_option(name);
+	//  DEBUG_PRINT(idx); DEBUG_PRINT(name); DEBUG_PRINTLN(sval);
+	  if (idx<0) continue;
+	  if (options[idx].max) {  // this is an integer option
+		  options[idx].ival = sval.toInt();
+	//	  DEBUG_PRINTLN(sval.toInt());
+	  } else {  // this is a string option
+		  options[idx].sval = sval;
+	  }
   }
+#else
+ int inam = 0, ival = 0,i=0;
+  char nome[10], valor[10],c=0;
+
+  uint32_t readlen;
+  char buffer[464] = { 0 };
+  readlen = file.read((char *)buffer, sizeof(buffer));
+  Serial.println(readlen);
+
+  buffer[readlen] = 0;
+  Serial.println(buffer);
+
+  while (i<readlen) {
+	  c = char(buffer[i++]);
+	  DEBUG_PRINT(c);
+	  
+	  if (inam >= 0)
+		  if (c == ':') { nome[inam] = 0; inam = -1; ival = 0; } else nome[inam++] = c;
+	  else
+		  if (c != '\n')valor[ival++] = c;
+		  else {
+			  valor[ival] = 0; inam = 0;
+			DEBUG_PRINT(nome); DEBUG_PRINTLN(valor);
+			String name = nome;// file.readStringUntil(':');
+			  DEBUG_PRINT(name); DEBUG_PRINT(":");
+			  //	char sval[10];
+			  String sval = valor;// file.readStringUntil('\n');
+			  DEBUG_PRINT(sval); DEBUG_PRINTLN("");
+
+			  sval.trim();
+			  int8_t idx = find_option(name);
+			  if (idx < 0) continue;
+			  if (options[idx].max) {  // this is an integer option
+				  options[idx].ival = sval.toInt();
+			  } else {  // this is a string option
+				  options[idx].sval = sval;
+			  }
+		  }
+  }
+#endif
   DEBUG_PRINTLN(F("ok"));
   file.close();
 }
-
 void OSBeeWiFi::options_save() {
+
 	NffsFile file;
-	  file.open(config_fname, FS_ACCESS_WRITE);
-  DEBUG_PRINT(F("saving config file..."));  
-  if(!file.exists()) {
-    DEBUG_PRINTLN(F("failed"));
-    return;
-  }
-  OptionStruct *o = options;
-  for(byte i=0;i<NUM_OPTIONS;i++,o++) {
-    file.print(o->name + ":");
-    if(o->max)
-      file.println(o->ival);
-    else
-      file.println(o->sval);
-  }
-  DEBUG_PRINTLN(F("ok"));  
-  file.close();
+	if (!Nffs.remove(config_fname))Serial.println("No delete");
+	file.open(config_fname, FS_ACCESS_WRITE);
+	Serial.print(F("saving config file..."));
+
+	OptionStruct *o = options;
+	char scr[300] = "";
+
+	for (byte i = 0; i < 13; i++, o++) {
+		//	Serial.print("Write " + o->name + ":");
+		strncat(scr, o->name.c_str(), o->name.length());
+		char dot[2] = ":";
+		strncat(scr, dot, 1);
+		if (o->max) {
+			char sval[10];
+			//		Serial.println(o->ival);
+			itoa(o->ival, sval, 10);
+			strncat(scr, sval, strlen(sval));
+		} else {
+			strncat(scr, o->sval.c_str(), o->sval.length());
+			//		Serial.println(o->sval);
+		}
+		strncat(scr, "\n\r", 2);
+	}
+	//file.write("\n\r", 2);
+//			for (byte i = 0; i < 100; i++) {
+//				DEBUG_PRINT(int(scr[i])); DEBUG_PRINT(" ");
+//			}
+	DEBUG_PRINT("Buffer=");
+	DEBUG_PRINTLN(scr);
+	file.write(scr, strlen(scr));
+	Serial.println(F("ok"));
+	file.close();
 }
 
-void OSBeeWiFi::toggle_led() {
-  static byte status = 0;
-  status = 1-status;
-  set_led(!status);
-}
-/*
-void OSBeeWiFi::set_led(byte status) {
-  display.setColor(status ? WHITE : BLACK);
-  display.fillCircle(122, 58, 4);
-  display.display();
-  display.setColor(WHITE);
-}
-*/
-bool OSBeeWiFi::get_cloud_access_en() {
-  if(options[OPTION_AUTH].sval.length()==32) {
-    return true;
-  }
-  return false;
-}
+#endif
 
+#ifdef LOGS
 void OSBeeWiFi::write_log(const LogStruct& data) {
 
 	NffsFile file;
@@ -320,6 +385,20 @@ bool OSBeeWiFi::read_log_end() {
   return true;
 }
 
+void OSBeeWiFi::log_reset() {
+	if (!Nffs.remove(log_fname)) {
+		DEBUG_PRINTLN(F("failed to remove log file"));
+		return;
+	}
+}
+#else
+void OSBeeWiFi::write_log(const LogStruct& data) {}
+bool OSBeeWiFi::read_log_next(LogStruct& data) {}
+void OSBeeWiFi::log_reset() {}
+bool OSBeeWiFi::read_log_end() {}
+bool OSBeeWiFi::read_log_start() {}
+
+#endif
 void OSBeeWiFi::apply_zbits() {
   static LogStruct l;
   for(byte i=0;i<MAX_NUMBER_ZONES;i++) {

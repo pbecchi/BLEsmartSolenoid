@@ -36,6 +36,61 @@ ulong ProgramData::curr_task_remaining_time;
 
 extern const char* prog_fname;
 
+void ProgramData::reset_runtime() {
+	for (byte i = 0; i<MAX_NUM_TASKS; i++) {
+		scheduled_stop_times[i] = 0;
+	}
+	curr_task_index = -1;
+	curr_prog_index = -1;
+	ntasks = 0;
+	scheduled_ntasks = 0;
+	curr_prog_remaining_time = 0;
+	curr_task_remaining_time = 0;
+}
+#ifdef NRF52
+// load station bits
+ byte buff[MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE];
+void writebuf( byte pos, byte * pointer, byte size) {
+	for (byte i = 0; i < size; i++)
+		buff[pos + i] = pointer[i];
+}
+void readbuf( byte pos, byte * result, byte size) {
+	for (byte i = 0; i < size; i++)
+		result[i] = buff[pos + i];
+}
+void writefile(NffsFile file) {
+	if (file.exists()) {
+		Nffs.remove(prog_fname);
+		file.open(prog_fname, FS_ACCESS_WRITE);
+	}
+	file.write(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
+
+}
+void ProgramData::load_curr_task(TaskStruct *t) {
+	if (!t)  return;
+	if (curr_prog_index == MANUAL_PROGRAM_INDEX ||
+		curr_prog_index == QUICK_PROGRAM_INDEX ||
+		curr_prog_index == TESTZONE_PROGRAM_INDEX) {
+		if (curr_task_index<0 || curr_task_index >= scheduled_ntasks) return;
+		*t = manual_tasks[curr_task_index];
+		return;
+	}
+	if (curr_prog_index<0 || curr_prog_index >= nprogs) return;
+	if (curr_task_index<0 || curr_task_index >= scheduled_ntasks) return;
+	NffsFile file;
+	file.open(prog_fname, FS_ACCESS_READ);
+
+	if (!file.exists()) return;
+	file.read(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
+	uint addr = sizeof(nprogs) + (uint)curr_prog_index * PROGRAMSTRUCT_SIZE;
+	addr += offsetof(struct ProgramStruct, tasks);
+	addr += (uint)curr_task_index * sizeof(TaskStruct);
+//	file.seek(addr);
+//	file.readBytes((char*)t, sizeof(TaskStruct));
+	readbuf(addr,(byte *)t, sizeof(TaskStruct));
+	file.close();
+}
+
 void ProgramData::load_count() {
 	NffsFile file;
    file.open(prog_fname, FS_ACCESS_READ);
@@ -45,13 +100,14 @@ void ProgramData::load_count() {
   file.close();
 }
 
-void ProgramData::save_count() {
+void ProgramData::save_count(byte nprogs) {
 	NffsFile file;
 	file.open(prog_fname, FS_ACCESS_READ);
 	if (!file.exists()) return;
-  file.seek(0);
-  file.write((const byte*)&nprogs, sizeof(nprogs));
-  file.close();
+//  file.seek(0);
+//  file.write((const byte*)&nprogs, sizeof(nprogs));
+	writebuf(0,( byte*)&nprogs, sizeof(nprogs));
+	file.close();
 }
 
 void ProgramData::init() {
@@ -60,15 +116,16 @@ void ProgramData::init() {
   if(!Nffs.testFile(prog_fname)) {
     // create program data file
     DEBUG_PRINTLN(F("create program data..."));
-	file.open(prog_fname, FS_ACCESS_READ);
+	file.open(prog_fname, FS_ACCESS_WRITE);
 	if (!file.exists()) {
       DEBUG_PRINTLN(F("failed"));
       return;
     }
-    file.write((const byte*)&nprogs, sizeof(nprogs));
-    byte zero = 0;
-    uint size = PROGRAMSTRUCT_SIZE * MAX_NUM_PROGRAMS;
-    file.write((const byte*)&zero, size);
+	writefile(file);
+   // file.write(buff,MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE );
+   // byte zero = 0;
+   // uint size = PROGRAMSTRUCT_SIZE * MAX_NUM_PROGRAMS;
+   // file.write((con, size);
     file.close();
     DEBUG_PRINTLN(F("ok"));
   } else {
@@ -76,23 +133,12 @@ void ProgramData::init() {
   }
 }
 
-void ProgramData::reset_runtime() {
-  for (byte i=0; i<MAX_NUM_TASKS; i++) {
-    scheduled_stop_times[i] = 0;
-  }
-  curr_task_index = -1;
-  curr_prog_index = -1;
-  ntasks = 0;
-  scheduled_ntasks = 0;
-  curr_prog_remaining_time = 0;
-  curr_task_remaining_time = 0;
-}
 
 // set all programs to empty
 void ProgramData::eraseall() {
   nprogs = 0;
   ntasks = 0;
-  save_count();  
+  save_count(nprogs);  
 }
 
 // read a program
@@ -101,48 +147,33 @@ void ProgramData::read(byte pid, ProgramStruct *buf, bool header_only) {
   NffsFile file;
   file.open(prog_fname, FS_ACCESS_READ);
   if (!file.exists()) return;
+  file.read(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
   uint addr = sizeof(nprogs) + (uint)pid * PROGRAMSTRUCT_SIZE;  
-  file.seek(addr);
-  file.readBytes((char*)buf, header_only?offsetof(struct ProgramStruct,tasks) : PROGRAMSTRUCT_SIZE);
+//  file.seek(addr);
+//  file.readBytes((char*)buf, header_only?offsetof(struct ProgramStruct,tasks) : PROGRAMSTRUCT_SIZE);
+  readbuf(addr, (byte*)buf, header_only ? offsetof(struct ProgramStruct, tasks) : PROGRAMSTRUCT_SIZE);
   ntasks=buf->ntasks;
   file.close();
 }
 
-// load station bits
-void ProgramData::load_curr_task(TaskStruct *t) {
-  if(!t)  return;
-  if (curr_prog_index == MANUAL_PROGRAM_INDEX ||
-      curr_prog_index == QUICK_PROGRAM_INDEX  ||
-      curr_prog_index == TESTZONE_PROGRAM_INDEX) {
-    if (curr_task_index<0 || curr_task_index>=scheduled_ntasks) return;
-    *t = manual_tasks[curr_task_index];
-    return;
-  }
-  if (curr_prog_index<0 || curr_prog_index>=nprogs) return;
-  if (curr_task_index<0 || curr_task_index>=scheduled_ntasks) return;
-  NffsFile file;
-  file.open(prog_fname, FS_ACCESS_READ);
-  if (!file.exists()) return;
-  uint addr = sizeof(nprogs) + (uint)curr_prog_index * PROGRAMSTRUCT_SIZE;
-  addr += offsetof(struct ProgramStruct,tasks);
-  addr += (uint)curr_task_index*sizeof(TaskStruct);
-  file.seek(addr);
-  file.readBytes((char*)t, sizeof(TaskStruct));
-  file.close();
-}
 
 // add a program
 byte ProgramData::add(ProgramStruct *buf) {
   if (nprogs >= MAX_NUM_PROGRAMS)  return 0;
   NffsFile file;
-  file.open(prog_fname, FS_ACCESS_READ);
+  file.open(prog_fname, FS_ACCESS_WRITE);
   if (!file.exists()) return 0; 
+  file.read(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
   uint addr = sizeof(nprogs) + (uint)nprogs * PROGRAMSTRUCT_SIZE;
-  file.seek(addr);
-  file.write((byte*)buf, PROGRAMSTRUCT_SIZE);
+//  file.seek(addr);
+//  file.write((byte*)buf, PROGRAMSTRUCT_SIZE);
+  writebuf(addr,(byte*)buf, PROGRAMSTRUCT_SIZE);
   nprogs ++;
-  file.seek(0);
-  file.write((const byte*)&nprogs, sizeof(nprogs));
+//  file.seek(0);
+//  file.write((const byte*)&nprogs, sizeof(nprogs));
+  writebuf(0,( byte*)&nprogs, sizeof(nprogs));
+//  file.write(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
+  writefile(file);
   file.close();  
   return 1;
 }
@@ -153,9 +184,13 @@ byte ProgramData::modify(byte pid, ProgramStruct *buf) {
   NffsFile file;
   file.open(prog_fname, FS_ACCESS_READ);
   if (!file.exists()) return 0; 
+  
   uint addr = sizeof(nprogs) + (uint)pid * PROGRAMSTRUCT_SIZE;
-  file.seek(addr);
-  file.write((byte*)buf, PROGRAMSTRUCT_SIZE);
+//  file.seek(addr);
+//  file.write((byte*)buf, PROGRAMSTRUCT_SIZE);
+  writebuf(addr,(byte*)buf, PROGRAMSTRUCT_SIZE);
+//  file.write(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
+  writefile(file);
   file.close();
   return 1;
 }
@@ -168,21 +203,134 @@ byte ProgramData::del(byte pid) {
   NffsFile file;
   file.open(prog_fname, FS_ACCESS_READ);
   if (!file.exists()) return 0; 
+  file.read(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
   uint addr = sizeof(nprogs) + (uint)(pid+1) * PROGRAMSTRUCT_SIZE;
   // erase by copying backward
   for (; addr < sizeof(nprogs) + nprogs * PROGRAMSTRUCT_SIZE; addr += PROGRAMSTRUCT_SIZE) {
-    file.seek(addr);
-    file.readBytes((char*)&copy, PROGRAMSTRUCT_SIZE);
-    file.seek(addr-PROGRAMSTRUCT_SIZE);
-    file.write((byte*)&copy, PROGRAMSTRUCT_SIZE);
+ //   file.seek(addr);
+ //   file.readBytes((char*)&copy, PROGRAMSTRUCT_SIZE);
+	  readbuf(addr,(byte*)&copy, PROGRAMSTRUCT_SIZE);
+//	  file.seek(addr-PROGRAMSTRUCT_SIZE);
+//    file.write((byte*)&copy, PROGRAMSTRUCT_SIZE);
+	  writebuf(addr - PROGRAMSTRUCT_SIZE,(byte*)&copy, PROGRAMSTRUCT_SIZE);
   }
   nprogs --;
-  file.seek(0);
-  file.write((const byte*)&nprogs, sizeof(nprogs));
+//  file.seek(0);
+//  file.write((const byte*)&nprogs, sizeof(nprogs));
+  writebuf(0,( byte*)&nprogs, sizeof(nprogs));
+//  file.write(buff, MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE);
+  writefile(file);
   file.close();  
   return 1;
 }
+#else
+#define ADDR_PROGRAMCOUNTER 400
+#define N10 ADDR_PROGRAMCOUNTER
+#define ADDR_PROGRAMDATA 401
+#define MAX_NUMBER_PROGRAMS 5
 
+void ProgramData::load_curr_task(TaskStruct *t) {
+	if (!t)  return;
+	if (curr_prog_index == MANUAL_PROGRAM_INDEX ||
+		curr_prog_index == QUICK_PROGRAM_INDEX ||
+		curr_prog_index == TESTZONE_PROGRAM_INDEX) {
+		if (curr_task_index<0 || curr_task_index >= scheduled_ntasks) return;
+		*t = manual_tasks[curr_task_index];
+		return;
+	}
+	if (curr_prog_index<0 || curr_prog_index >= nprogs) return;
+	if (curr_task_index<0 || curr_task_index >= scheduled_ntasks) return;
+
+	unsigned int addr = sizeof(nprogs) + (unsigned int)curr_prog_index * PROGRAMSTRUCT_SIZE;
+	addr += offsetof(struct ProgramStruct, tasks);
+	addr += (unsigned int)curr_task_index * sizeof(TaskStruct);
+	eeprom_read_block((void *)t, (void *)addr, sizeof(TaskStruct));
+//	file.seek(addr);
+//	file.readBytes((char*)t, sizeof(TaskStruct));
+//	file.close();
+}
+void::ProgramData::init(){}
+
+/** Load program count from NVM */
+void ProgramData::load_count() {
+	byte nprograms = eeprom_read_byte((byte *)N10);
+	nprograms = nvm_read_byte((byte *)ADDR_PROGRAMCOUNTER);
+}
+
+/** Save program count to NVM */
+void ProgramData::save_count(byte nprograms) {
+	
+	nvm_write_byte((byte *)ADDR_PROGRAMCOUNTER, nprograms);
+}
+
+/** Erase all program data */
+void ProgramData::eraseall() {
+
+	byte nprograms = 0;
+	save_count(nprograms);
+}
+
+/** Read a program from NVM*/
+void ProgramData::read(byte pid, ProgramStruct *buf,boolean head) {
+	byte nprograms = eeprom_read_byte((byte *)N10);
+	if (pid >= nprograms) return;
+	if (0) {
+		// todo: handle SD card
+	} else {
+		unsigned int addr = ADDR_PROGRAMDATA + (unsigned int)pid * PROGRAMSTRUCT_SIZE;
+		nvm_read_block((void*)buf, (const void *)addr, PROGRAMSTRUCT_SIZE);
+	}
+}
+
+/** Add a program */
+byte ProgramData::add(ProgramStruct *buf) {
+	byte nprograms = eeprom_read_byte((byte *)N10);
+	if (0) {
+		// todo: handle SD card
+	} else {
+		if (nprograms >= MAX_NUMBER_PROGRAMS)  return 0;
+		unsigned int addr = ADDR_PROGRAMDATA + (unsigned int)nprograms * PROGRAMSTRUCT_SIZE;
+		nvm_write_block((const void*)buf, (void *)addr, PROGRAMSTRUCT_SIZE);
+		nprograms++;
+		save_count(nprograms);
+	}
+	return 1;
+}
+
+/** Modify a program */
+byte ProgramData::modify(byte pid, ProgramStruct *buf) {
+	byte nprograms = eeprom_read_byte((byte *)N10);
+	if (pid >= nprograms)  return 0;
+	if (0) {
+		// handle SD card
+	} else {
+		unsigned int addr = ADDR_PROGRAMDATA + (unsigned int)pid * PROGRAMSTRUCT_SIZE;
+		nvm_write_block((const void*)buf, (void *)addr, PROGRAMSTRUCT_SIZE);
+	}
+	return 1;
+}
+
+/** Delete program(s) */
+byte ProgramData::del(byte pid) {
+	byte nprograms = eeprom_read_byte((byte *)N10);
+	if (pid >= nprograms)  return 0;
+	if (nprograms == 0) return 0;
+	if (0) {
+		// handle SD card
+	} else {
+		ProgramStruct copy;
+		unsigned int addr = ADDR_PROGRAMDATA + (unsigned int)(pid + 1) * PROGRAMSTRUCT_SIZE;
+		// erase by copying backward
+		for (; addr < ADDR_PROGRAMDATA + nprograms * PROGRAMSTRUCT_SIZE; addr += PROGRAMSTRUCT_SIZE) {
+			nvm_read_block((void*)&copy, (const void *)addr, PROGRAMSTRUCT_SIZE);
+			nvm_write_block((const void*)&copy, (void *)(addr - PROGRAMSTRUCT_SIZE), PROGRAMSTRUCT_SIZE);
+		}
+nprograms--;
+		save_count(nprograms);
+	}
+	return 1;
+}
+#endif
 // Check if a given time matches the program's start day
 byte ProgramStruct::check_day_match(time_t t) {
 
@@ -232,7 +380,7 @@ byte ProgramStruct::check_match(time_t t) {
   int16_t start = starttimes[0];
   int16_t repeat = starttimes[1];
   int16_t interval = starttimes[2];
-  uint current_minute = (t%86400L)/60;
+  unsigned long current_minute = (t%86400L)/60;
 
   // first assume program starts today
   if (check_day_match(t)) {

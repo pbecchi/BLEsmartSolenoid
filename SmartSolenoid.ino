@@ -19,27 +19,23 @@
  * along with this program.  If not, see
  * <http://www.gnu.org/licenses/>.
  */
-
-
+ 
+#ifdef NRF52
 #include <bluefruit.h>
-//#include <ESP8266WiFi.h>
-//#include <ESP8266WebServer.h>
-//#include <ESP8266mDNS.h>
-//#include <WiFiUdp.h>
-//#include <time.h>
-//#include <TimeLib.h>
-//#include <FS.h>
-//#include <Blynk/src/BlynkSimpleEsp8266.h>
-#include <Wire.h>
-//#include <esp8266-oled-ssd1306-master\SSD1306.h>
-//#include <i2crtc.h>
-#include "OSBeeWiFi.h"
+#include <Nffs.h>
 #include "BLESERVER.h"
+
+#endif
+//#include <Wire.h>
+
+#include "OSBeeWiFi.h"
+#include <TimeLib.h>
 
 void do_setup();
 void do_loop();
 
 void setup() {
+	
   do_setup();
 }
 

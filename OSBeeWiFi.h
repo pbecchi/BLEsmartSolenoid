@@ -24,11 +24,15 @@
 #define _OSBEEWIFI_H
 
 #include <Arduino.h>
+#ifdef NRF52
+#include <bluefruit.h>
 #include <Nffs.h>
 #define File NffsFile
+#endif
 //#include <FS.h>
 //#include <SSD1306.h>
 //#include <i2crtc.h>
+#include <TimeLib.h>
 #include "defines.h"
 
 struct OptionStruct {
@@ -37,7 +41,12 @@ struct OptionStruct {
   uint16_t max;   // maximum value
   String sval;    // string value
 };
-
+struct OptionChar{
+	char name[6];    // option name
+	uint16_t ival;  // integer value
+	uint16_t max;   // maximum value
+	char sval[20];    // string value
+};
 struct LogStruct {
   ulong tstamp; // time stamp
   ulong dur;    // duration
@@ -85,8 +94,10 @@ public:
   static void boldFont(bool bold);
 private:
   static byte st_pins[];
+#ifdef NRF52
   static File log_file;
   static File prog_file;
+#endif
   static void setallpins(byte value);
   static void button_handler();
   static void boost();

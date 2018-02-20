@@ -1,16 +1,32 @@
+
+
 #include "BLESERVER.h"
-#include <bluefruit.h>
+
+//#define LORA
 #include "defines.h"
+#ifdef LORA
+#include <SPI.h>              // include libraries
+#include <LoRa.h>
+
+const int csPin = 7;          // LoRa radio chip select
+const int resetPin = 6;       // LoRa radio reset
+const int irqPin = 1;         // change for your board; must be a hardware interrupt pin
+#endif
 // Peripheral uart service
+String argname[10];
+String argval[10];
+byte narg;
+char RXpointer[80]; byte iRX = 0;
+
+#define SER 
+#ifdef NRF52
+#include <bluefruit.h>
+
 BLEUart bleuart;
 
 // Central uart client
 BLEClientUart clientUart;
 
-
-String argname[20];
-String argval[20];
-byte narg;
 
 void startAdv(void) {
 	// Advertising packet
@@ -58,7 +74,7 @@ void prph_disconnect_callback(uint16_t conn_handle, uint8_t reason) {
 	DEBUG_PRINTLN();
 	DEBUG_PRINTLN("[Prph] Disconnected");
 }
-char RXpointer[100]; byte iRX = 0;
+
 void prph_bleuart_rx_callback(void) {
 	// Forward data from Mobile to our peripheral
 	char str[20 + 1] = { 0 };
@@ -67,15 +83,15 @@ void prph_bleuart_rx_callback(void) {
 	DEBUG_PRINT("[Prph] RX: ");
 	DEBUG_PRINTLN(str);
 
-	if (clientUart.discovered()) {
+	//if (clientUart.discovered()) {
 		for (byte i = 0; i < 20; i++) 
 			RXpointer[iRX + i] = str[i];
 		iRX+=20;
 	//	clientUart.print(str);
-		DEBUG_PRINTLN("sent to Client");
-	} else {
-		bleuart.print("[Prph] Central role-fagKDFKAjglajhdLH ");
-	}
+	//	DEBUG_PRINTLN("sent to Client");
+//	} else {
+//		bleuart.print("[Prph] Central role-fagKDFKAjglajhdLH ");
+//	}
 }
 
 /*------------------------------------------------------------------*/
@@ -135,6 +151,7 @@ void cent_bleuart_rx_callback(BLEClientUart& cent_uart) {
 	}
 }
 
+#endif
 
 
 BLESERVER::BLESERVER() {
@@ -145,6 +162,7 @@ BLESERVER::~BLESERVER() {
 }
 
 void BLESERVER::begin() {// Enable both peripheral and central
+#ifdef NRF52
 	Bluefruit.begin(true, true);
 	// Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
 	Bluefruit.setTxPower(4);
@@ -184,27 +202,55 @@ void BLESERVER::begin() {// Enable both peripheral and central
 
 												  // Set up and start advertising
 	startAdv();
+#endif
+#ifdef LORA
+	// override the default CS, reset, and IRQ pins (optional)
+	LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
 
+	if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
+		Serial.println("LoRa init failed. Check your connections.");
+		while (true);                       // if failed, do nothing
+	}
+
+	Serial.println("LoRa init succeeded.");
+#endif
 }
 
 void BLESERVER::handleClient() {
-	if (iRX == 0)return;
-	if (RXpointer[iRX] != 0)return;
-	char * str;
+	
+#ifdef SER
+	while (Serial.available()) {
+		RXpointer[iRX++] = Serial.read();
+		DEBUG_PRINT(RXpointer[iRX - 1]);
+	}
+	
+		if (RXpointer[iRX - 1] >= 20)return;//wait EOL or CR
+		RXpointer[iRX] = 0;
+		Serial.flush();
+#endif
+//  decode RX buffer----------------------------------------------------	
+//	if (RXpointer[iRX] != 0)return;
+		if (iRX == 0) return;
+		DEBUG_PRINTLN(RXpointer);
+		char * str = "\0";
 	str = strtok(RXpointer, "?\0");
 	if (str == NULL)return;
+	DEBUG_PRINTLN(str);
 	str = strtok(NULL, "=\0");
 	while (str != NULL) {
-		argname[narg] = str;
+		DEBUG_PRINTLN(str);
+		argname[narg] = String(str);
 		argval[narg++] = strtok(NULL, "&\0");
 		str = strtok(NULL, "=\0");
-
+		DEBUG_PRINT(argname[narg-1]); DEBUG_PRINT("="); DEBUG_PRINTLN(argval[narg-1]);
 	}
+
 	iRX = 0;
 	for (byte i = 0; i < Handler_count; i++) {
 		for (byte j = 0; j < 3; j++) {
 			if (Handler_u[i][j] != RXpointer[j])break;
-			if (j == 3) {
+			if (j == 2) {
+				DEBUG_PRINT("handler "); DEBUG_PRINTLN(i);
 				Handler_f[i]();
 				return;
 			}
@@ -219,13 +265,18 @@ void BLESERVER::on(char * uri, THandlerFunction handler) {
 	Handler_count++;
 }
 
+
 String BLESERVER::arg(String name) {
 	for (byte i = 0; i < narg; i++)
-		if (argname[i] == name) return argval[i];
+		if (argname[i] == name) {
+			DEBUG_PRINT(i); DEBUG_PRINT(" arg="); DEBUG_PRINTLN(argval[ i ]);
+			return argval[i];
+		}
 	return String();
 }
 
 String BLESERVER::arg(int i) {
+	DEBUG_PRINT(i); DEBUG_PRINT(" arg="); DEBUG_PRINTLN(argval[i]);
 	return argval[i];
 }
 
@@ -244,6 +295,14 @@ bool BLESERVER::hasArg(String name) {
 }
 
 void BLESERVER::send(int code, const String & content_type, const String & content) {
+	DEBUG_PRINTLN( content);
+#ifdef NRF52
+	bleuart.print( content);
+
+#endif
+#ifdef SER
+	Serial.print(content);
+#endif
 }
 
 

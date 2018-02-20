@@ -23,6 +23,15 @@
 #ifndef _DEFINES_H
 #define _DEFINES_H
 
+#ifndef NRF52 
+#include <avr/eeprom.h>
+#define nvm_read_block  eeprom_read_block
+#define nvm_write_block eeprom_write_block
+#define nvm_read_byte   eeprom_read_byte
+#define nvm_write_byte  eeprom_write_byte
+#define EEPROMS
+#define resetcond  eeprom_read_byte(0)!=127
+#endif
 /** Firmware version, hardware version, and maximal values */
 #define OSB_FWV    100    // Firmware version: 100 means 1.0.0
 
@@ -114,7 +123,7 @@ typedef enum {
 #define TIME_SYNC_TIMEOUT  3600
 
 /** Serial debug functions */
-#define SERIAL_DEBUG
+//#define SERIAL_DEBUG
 #if defined(SERIAL_DEBUG)
 
   #define DEBUG_BEGIN(x)   { Serial.begin(x); }

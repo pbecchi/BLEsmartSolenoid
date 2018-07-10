@@ -37,7 +37,7 @@ public:
 
 	void begin();
 	void handleClient();
-
+	bool LoRaReceiver();
 	typedef void(*THandlerFunction)(void);
 
 	void on( char* uri, THandlerFunction handler);

@@ -1,28 +1,34 @@
-
+#ifndef nocomp
 
 #include "BLESERVER.h"
 
-//#define LORA
+#ifndef NRF52
+#define LORA
+#endif
 #include "defines.h"
 #ifdef LORA
 #include <SPI.h>              // include libraries
-#include <LoRa.h>
-
-const int csPin = 7;          // LoRa radio chip select
-const int resetPin = 6;       // LoRa radio reset
-const int irqPin = 1;         // change for your board; must be a hardware interrupt pin
+//#include <LoRa.h>
+#include <RH_RF95.h>
+#include <LowPower.h>
+//const int csPin = 10;          // LoRa radio chip select
+//const int resetPin = 9;       // LoRa radio reset
+//const int irqPin = 1;         // change for your board; must be a hardware interrupt pin
 #endif
 // Peripheral uart service
-String argname[10];
-String argval[10];
-byte narg;
-char RXpointer[80]; byte iRX = 0;
-
-#define SER 
+static String argname[8];
+static String argval[8];
+static byte narg;
+static char RXpointer[80]; byte iRX = 0;
+#ifdef LORA
+RH_RF95 LoRa;
+#endif
+//#define SER 
 #ifdef NRF52
+#undef SER
 #include <bluefruit.h>
 
-BLEUart bleuart;
+static BLEUart bleuart;
 
 // Central uart client
 BLEClientUart clientUart;
@@ -62,6 +68,7 @@ void startAdv(void) {
 void prph_connect_callback(uint16_t conn_handle) {
 	char peer_name[32] = { 0 };
 	Bluefruit.Gap.getPeerName(conn_handle, peer_name, sizeof(peer_name));
+
 
 	DEBUG_PRINT("[Prph] Connected to ");
 	DEBUG_PRINTLN(peer_name);
@@ -160,13 +167,13 @@ BLESERVER::BLESERVER() {
 
 BLESERVER::~BLESERVER() {
 }
-
 void BLESERVER::begin() {// Enable both peripheral and central
 #ifdef NRF52
-	Bluefruit.begin(true, true);
+
+	//Bluefruit.begin();
 	// Set max power. Accepted values are: -40, -30, -20, -16, -12, -8, -4, 0, 4
 	Bluefruit.setTxPower(4);
-	Bluefruit.setName("duo1");
+	Bluefruit.setName("duo0");
 
 	// Callbacks for Peripheral
 	Bluefruit.setConnectCallback(prph_connect_callback);
@@ -182,8 +189,8 @@ void BLESERVER::begin() {// Enable both peripheral and central
 	bleuart.setRxCallback(prph_bleuart_rx_callback);
 
 	// Init BLE Central Uart Serivce
-	clientUart.begin();
-	clientUart.setRxCallback(cent_bleuart_rx_callback);
+//	clientUart.begin();
+//	clientUart.setRxCallback(cent_bleuart_rx_callback);
 
 
 	/* Start Central Scanning
@@ -192,47 +199,47 @@ void BLESERVER::begin() {// Enable both peripheral and central
 	* - Filter only accept bleuart service
 	* - Don't use active scan
 	* - Start(timeout) with timeout = 0 will scan forever (until connected)
-	*/
+	
 	Bluefruit.Scanner.setRxCallback(scan_callback);
 	Bluefruit.Scanner.restartOnDisconnect(true);
 	Bluefruit.Scanner.setInterval(160, 80); // in unit of 0.625 ms
 	Bluefruit.Scanner.filterUuid(bleuart.uuid);
 	Bluefruit.Scanner.useActiveScan(false);
 	Bluefruit.Scanner.start(0);                   // 0 = Don't stop scanning after n seconds
-
+	*/
 												  // Set up and start advertising
 	startAdv();
 #endif
 #ifdef LORA
 	// override the default CS, reset, and IRQ pins (optional)
-	LoRa.setPins(csPin, resetPin, irqPin);// set CS, reset, IRQ pin
+	//LoRa.setPins(csPin, resetPin,irqPin);// set CS, reset, IRQ pin
 
-	if (!LoRa.begin(915E6)) {             // initialize ratio at 915 MHz
-		Serial.println("LoRa init failed. Check your connections.");
+	if (!LoRa.init()) {             // initialize ratio at 915 MHz
+		DEBUG_PRINTLN("LoRa init failed. Check your connections.");
 		while (true);                       // if failed, do nothing
 	}
-
-	Serial.println("LoRa init succeeded.");
+	LoRa.isChannelActive();
+	DEBUG_PRINTLN("LoRa init succeeded.");
 #endif
 }
-
 void BLESERVER::handleClient() {
-	
+
 #ifdef SER
-	while (Serial.available()) {
-		RXpointer[iRX++] = Serial.read();
-		DEBUG_PRINT(RXpointer[iRX - 1]);
+	if (Serial.available()) {
+		char a= Serial.read();
+		RXpointer[iRX++] = a;
+		DEBUG_PRINT(a);
 	}
-	
-		if (RXpointer[iRX - 1] >= 20)return;//wait EOL or CR
-		RXpointer[iRX] = 0;
-		Serial.flush();
+
+	if (RXpointer[iRX - 1] !=10 )return;//wait EOL or CR
+	RXpointer[iRX] = 0;
+	Serial.flush();
 #endif
-//  decode RX buffer----------------------------------------------------	
-//	if (RXpointer[iRX] != 0)return;
-		if (iRX == 0) return;
-		DEBUG_PRINTLN(RXpointer);
-		char * str = "\0";
+	//  decode RX buffer----------------------------------------------------	
+	//	if (RXpointer[iRX] != 0)return;
+	if (iRX == 0) return;
+	DEBUG_PRINT(F("INPUT:")); DEBUG_PRINTLN(RXpointer);
+	char * str = "\0";
 	str = strtok(RXpointer, "?\0");
 	if (str == NULL)return;
 	DEBUG_PRINTLN(str);
@@ -242,7 +249,7 @@ void BLESERVER::handleClient() {
 		argname[narg] = String(str);
 		argval[narg++] = strtok(NULL, "&\0");
 		str = strtok(NULL, "=\0");
-		DEBUG_PRINT(argname[narg-1]); DEBUG_PRINT("="); DEBUG_PRINTLN(argval[narg-1]);
+		DEBUG_PRINT(argname[narg - 1]); DEBUG_PRINT("="); DEBUG_PRINTLN(argval[narg - 1]);
 	}
 
 	iRX = 0;
@@ -256,8 +263,87 @@ void BLESERVER::handleClient() {
 			}
 		}
 	}
-}
+	}
+#ifdef LORA
+#define CAD
+//#define DEBUG
+#ifndef DEBUG
+#define DEBbegin(x) {}
+#define DEBprint(x) {}
+#define DEBprintln(x) {}
+#else
+#define DEBbegin(x) Serial.begin(x)
+#define DEBprint(x) Serial.print(x)
+#define DEBprintln(x) Serial.println(x)
+#endif
+#define SLEEP_MILLI 263
+int sec = 0, min = 1; long premil = 1000; long sleepcount = 0; byte server_code = 0xFF;
+bool BLESERVER::LoRaReceiver() {
+#ifdef CAD
+	while (millis() < premil)
+		if (!(LoRa.isChannelActive())) {
 
+			LoRa.sleep();// DEBprint('.');
+						 //	DEBprintln("LoRa now sleep");
+						 //	delay(2000);
+			LowPower.powerDown(SLEEP_250MS, ADC_OFF, BOD_OFF);
+			sleepcount++;
+			//LowPower.powerStandby(SLEEP_250MS, ADC_OFF, BOD_OFF);
+			premil = premil - SLEEP_MILLI;
+			/* add main program code here */
+			//	LoRa.setModeIdle();
+
+
+		} else {
+			DEBprint("Message to:");
+			int i = 0;
+			//	while (!LoRa.available()) { delay(1); if (i++ > 5000)break; }// with preambleLength 1000 at least 2 seconds timeout
+
+			//	DEBprintln(LoRa.headerTo(),DEC);
+			if (LoRa.waitAvailableTimeout(5000)) {
+				if (server_code == LoRa.headerTo()) {
+#else
+	if (LoRa.available()) {
+#endif
+
+		DEBprintln(LoRa.headerTo());
+		// Should be a message for us now   
+		//char buf[RH_RF95_MAX_MESSAGE_LEN];
+		uint8_t len = sizeof(RXpointer);// RH_RF95_MAX_MESSAGE_LEN;a
+		if (LoRa.recv((byte *)RXpointer, &len)) {
+		//	digitalWrite(led, HIGH);
+			//      RH_RF95::printBuffer("request: ", buf, len);
+			DEBprint("Text: ");
+			DEBprint((char*)RXpointer);
+			DEBprint("RSSI: ");
+			DEBprintln(LoRa.lastRssi());
+			// Send a reply
+			//char data[20] = "Received ";
+			//strcat(data, (char *)buf);
+			//LoRa.send((byte *)data, sizeof(data));
+			iRX = len;
+			handleClient();
+			DEBprintln("Sent a reply");
+			//digitalWrite(led, LOW);
+			LoRa.waitPacketSent();
+		} else DEBprintln("recv failed");
+
+	} else DEBprintln("not for me");
+				} else DEBprintln("timeout");
+#ifdef CAD
+				LoRa.sleep();
+				sleepcount++;
+				LowPower.powerDown(SLEEP_250MS, ADC_OFF, BOD_OFF);
+				premil = premil - SLEEP_MILLI;
+				//		return true;
+			}
+			premil = millis() + 1000;
+
+#endif
+		}
+#endif
+
+char iiii;
 void BLESERVER::on(char * uri, THandlerFunction handler) {
 	if (Handler_count >= MAX_HANDLER) return;
 	for (byte j = 0; j<3; j++) Handler_u[Handler_count][j] = uri[j];
@@ -298,10 +384,14 @@ void BLESERVER::send(int code, const String & content_type, const String & conte
 	DEBUG_PRINTLN( content);
 #ifdef NRF52
 	bleuart.print( content);
-
 #endif
 #ifdef SER
-	Serial.print(content);
+	DEBUG_PRINT(content);
+#endif
+#ifdef LORA
+ byte buf[80];
+	strcpy((char *)buf, content.c_str());
+	LoRa.send(buf ,content.length());
 #endif
 }
 
@@ -309,3 +399,4 @@ void BLESERVER::send(int code, const String & content_type, const String & conte
 
 
 
+#endif

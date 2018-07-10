@@ -19,10 +19,14 @@
  * along with this program.  If not, see
  * <http://www.gnu.org/licenses/>.
  */
-
+#ifndef nocomp
 #include <limits.h>
-#include "TimeLib.h"
+#include <TimeLib.h>
 #include "program.h"
+#ifdef NRF52
+#include <Nffs.h>
+#define FILE_PROG
+#endif
 // Declare static data members
 byte ProgramData::ntasks = 0;
 byte ProgramData::nprogs = 0;
@@ -47,7 +51,8 @@ void ProgramData::reset_runtime() {
 	curr_prog_remaining_time = 0;
 	curr_task_remaining_time = 0;
 }
-#ifdef NRF52
+
+#ifdef FILE_PROG
 // load station bits
  byte buff[MAX_NUM_PROGRAMS*PROGRAMSTRUCT_SIZE];
 void writebuf( byte pos, byte * pointer, byte size) {
@@ -223,7 +228,17 @@ byte ProgramData::del(byte pid) {
   file.close();  
   return 1;
 }
-#else
+#else 
+/*
+byte nvm_read_byte(void * pos) { ; }
+void nvm_write_byte(void * pos, byte val) { ; }
+void nvm_read_block(void * t, const void * addr, byte size) { ; }
+void nvm_write_block(const void * t, void * addr, byte size) { ; }
+byte eeprom_read_byte(void * pos) { ; }
+void eeprom_write_byte(void * pos, byte val) { ; }
+void eeprom_read_block(void * t, const void * addr, byte size) { ; }
+void eeprom_write_block(const void * t, void * addr, byte size) { ; }
+*/
 #define ADDR_PROGRAMCOUNTER 400
 #define N10 ADDR_PROGRAMCOUNTER
 #define ADDR_PROGRAMDATA 401
@@ -385,7 +400,7 @@ byte ProgramStruct::check_match(time_t t) {
   // first assume program starts today
   if (check_day_match(t)) {
     // t matches the program's start day
-
+	 // DEBUG_PRINT(sttype); DEBUG_PRINT("day match"); DEBUG_PRINTLN(start);
     switch(sttype) {
       case STARTTIME_TYPE_NONE:
       {
@@ -430,3 +445,4 @@ byte ProgramStruct::check_match(time_t t) {
   }
   return 0;
 }
+#endif

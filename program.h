@@ -24,9 +24,9 @@
 #define _PROGRAM_H
 
 #include "OSBeeWiFi.h"
-
+#include <TimeLib.h>
 #define MAX_NUM_PROGRAMS      3
-#define MAX_NUM_STARTTIMES    5
+#define MAX_NUM_STARTTIMES    3
 #define PROGRAM_NAME_SIZE    16
 #define MAX_NUM_TASKS        2
 

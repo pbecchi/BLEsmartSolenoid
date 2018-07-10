@@ -21,9 +21,13 @@
  */
 
 #ifndef _DEFINES_H
-#define _DEFINES_H
-
+//#define _DEFINES_H
+//#define MYPIN_LED2 PIN_LED2
+#define PIN_LED3 25
+#define OS217
 #ifndef NRF52 
+
+
 #include <avr/eeprom.h>
 #define nvm_read_block  eeprom_read_block
 #define nvm_write_block eeprom_write_block
@@ -32,17 +36,18 @@
 #define EEPROMS
 #define resetcond  eeprom_read_byte(0)!=127
 #endif
-/** Firmware version, hardware version, and maximal values */
+
+ /** Firmware version, hardware version, and maximal values */
 #define OSB_FWV    100    // Firmware version: 100 means 1.0.0
 
 /** GPIO pins */
-#define PIN_BST_PWR 15    // Boost converter power
-#define PIN_BST_EN  16    // Boost converter enable
-#define PIN_BUTTON  0
-#define PIN_COM     2     // COM
-#define PIN_ZS0     12    // Zone switch 0
-#define PIN_ZS1     13    // Zone switch 1
-#define PIN_ZS2     14    // Zone switch 2
+#define PIN_BST_PWR PIN_LED3    // Boost converter power
+#define PIN_BST_EN  PIN_LED3    // Boost converter enable
+#define PIN_BUTTON  PIN_LED3
+#define PIN_COM     PIN_LED3     // COM
+#define PIN_ZS0     PIN_LED3    // Zone switch 0
+#define PIN_ZS1     PIN_LED3    // Zone switch 1
+#define PIN_ZS2     PIN_LED3    // Zone switch 2
 
 // Default device name
 #define DEFAULT_NAME    "My OSBee WiFi"
@@ -70,7 +75,7 @@
 #define OSB_STATE_RESET          9
 #define OSB_STATE_RESTART        10
 
-#define MAX_NUMBER_ZONES         3
+#define MAX_NUMBER_ZONES         1
 
 // Blynk pin defines
 #define BLYNK_RESET V0
@@ -124,6 +129,7 @@ typedef enum {
 
 /** Serial debug functions */
 //#define SERIAL_DEBUG
+
 #if defined(SERIAL_DEBUG)
 
   #define DEBUG_BEGIN(x)   { Serial.begin(x); }
@@ -137,6 +143,7 @@ typedef enum {
   #define DEBUG_PRINTLN(x) {}
 
 #endif
+#define DELAYTEST delay(10000);
 
 typedef unsigned char byte;
 typedef unsigned long ulong;

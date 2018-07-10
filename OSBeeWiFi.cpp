@@ -1,9 +1,9 @@
-/* OSBeeWiFi Firmware
+#ifndef nocomp
+/* Smart Solenoid  Firmware
  *
- * OSBeeWiFi library
+ * freely taken from OSBeeWiFi library
  * December 2016 @ bee.opensprinkler.com
  *
- * This file is part of the OSBeeWiFi library
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,21 +21,22 @@
  */
 #include <Arduino.h>
 #include "OSBeeWiFi.h"
-//#include "font.h"
-//#include "images.h"
 #include "program.h"
-//static NffsFile file;
+#ifdef NRF52
+#include <bluefruit.h>
+#include <Nffs.h>
+#define File NffsFile
+#endif
+#include <TimeLib.h>
+
 byte OSBeeWiFi::state = OSB_STATE_INITIAL;
 byte OSBeeWiFi::has_rtc = false;
 byte OSBeeWiFi::curr_zbits = 0;
 byte OSBeeWiFi::next_zbits = 0;
 byte OSBeeWiFi::program_busy = 0;
-//File OSBeeWiFi::log_file;
-//File OSBeeWiFi::prog_file;
 byte OSBeeWiFi::st_pins[] = {PIN_ZS0, PIN_ZS1, PIN_ZS2};
 ulong OSBeeWiFi::open_tstamp[]={0,0,0};
 ulong OSBeeWiFi::curr_utc_time = 0;
-//SSD1306 OSBeeWiFi::display(0x3c, SDA, SCL);
 
 const char* config_fname = CONFIG_FNAME;
 const char* log_fname = LOG_FNAME;
@@ -240,17 +241,17 @@ void OSBeeWiFi::options_load() {
 		  options[idx].sval = sval;
 	  }
   }
-#else
+#else  // read all file in a single buffer record and decode byte by byte
  int inam = 0, ival = 0,i=0;
   char nome[10], valor[10],c=0;
 
   uint32_t readlen;
   char buffer[464] = { 0 };
   readlen = file.read((char *)buffer, sizeof(buffer));
-  Serial.println(readlen);
+  DEBUG_PRINTLN(readlen);
 
   buffer[readlen] = 0;
-  Serial.println(buffer);
+  DEBUG_PRINTLN(buffer);
 
   while (i<readlen) {
 	  c = char(buffer[i++]);
@@ -286,26 +287,26 @@ void OSBeeWiFi::options_load() {
 void OSBeeWiFi::options_save() {
 
 	NffsFile file;
-	if (!Nffs.remove(config_fname))Serial.println("No delete");
+	if (!Nffs.remove(config_fname))DEBUG_PRINTLN("No delete");
 	file.open(config_fname, FS_ACCESS_WRITE);
-	Serial.print(F("saving config file..."));
+	DEBUG_PRINT(F("saving config file..."));
 
 	OptionStruct *o = options;
 	char scr[300] = "";
 
 	for (byte i = 0; i < 13; i++, o++) {
-		//	Serial.print("Write " + o->name + ":");
+		//	DEBUG_PRINT("Write " + o->name + ":");
 		strncat(scr, o->name.c_str(), o->name.length());
 		char dot[2] = ":";
 		strncat(scr, dot, 1);
 		if (o->max) {
 			char sval[10];
-			//		Serial.println(o->ival);
+			//		DEBUG_PRINTLN(o->ival);
 			itoa(o->ival, sval, 10);
 			strncat(scr, sval, strlen(sval));
 		} else {
 			strncat(scr, o->sval.c_str(), o->sval.length());
-			//		Serial.println(o->sval);
+			//		DEBUG_PRINTLN(o->sval);
 		}
 		strncat(scr, "\n\r", 2);
 	}
@@ -316,7 +317,7 @@ void OSBeeWiFi::options_save() {
 	DEBUG_PRINT("Buffer=");
 	DEBUG_PRINTLN(scr);
 	file.write(scr, strlen(scr));
-	Serial.println(F("ok"));
+	DEBUG_PRINTLN(F("ok"));
 	file.close();
 }
 
@@ -459,26 +460,34 @@ void OSBeeWiFi::open(byte zid) {
     digitalWrite(PIN_BST_EN, HIGH); // dump boosted voltage    
     digitalWrite(pin, LOW);         // set specified switch to LOW
   }
+#ifdef NRF52
+  digitalWrite(PIN_LED1, 1);
+#endif
+
 }
 
 // close a zone
 void OSBeeWiFi::close(byte zid) {
-  byte pin = st_pins[zid];
-  if(options[OPTION_SOT].ival == OSB_SOT_LATCH) {  
-    // for latching solenoid
-    boost();  // boost voltage
-    setallpins(LOW);        // set all switches to LOW, including COM
-    digitalWrite(pin, HIGH);// set the specified switch to HIGH
-    digitalWrite(PIN_BST_EN, HIGH); // dump boosted voltage
-    delay(100);                     // for 250ms
-    digitalWrite(pin, LOW);     // set the specified switch back to LOW
-    digitalWrite(PIN_BST_EN, LOW);  // disable boosted voltage
-    setallpins(HIGH);               // set all switches back to HIGH
-  } else {
-    DEBUG_PRINT("close_nl ");
-    DEBUG_PRINTLN(zid);   
-    // for non-latching solenoid
-    digitalWrite(pin, HIGH);
-  }
+	byte pin = st_pins[zid];
+	if (options[OPTION_SOT].ival == OSB_SOT_LATCH) {
+		// for latching solenoid
+		boost();  // boost voltage
+		setallpins(LOW);        // set all switches to LOW, including COM
+		digitalWrite(pin, HIGH);// set the specified switch to HIGH
+		digitalWrite(PIN_BST_EN, HIGH); // dump boosted voltage
+		delay(100);                     // for 250ms
+		digitalWrite(pin, LOW);     // set the specified switch back to LOW
+		digitalWrite(PIN_BST_EN, LOW);  // disable boosted voltage
+		setallpins(HIGH);               // set all switches back to HIGH
+	} else {
+		DEBUG_PRINT("close_nl ");
+		DEBUG_PRINTLN(zid);
+		// for non-latching solenoid
+		digitalWrite(pin, HIGH);
+#ifdef NRF52
+		digitalWrite(PIN_LED1, 0);
+#endif
+	}
 }
 
+#endif

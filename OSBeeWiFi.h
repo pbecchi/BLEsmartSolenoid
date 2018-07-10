@@ -24,15 +24,6 @@
 #define _OSBEEWIFI_H
 
 #include <Arduino.h>
-#ifdef NRF52
-#include <bluefruit.h>
-#include <Nffs.h>
-#define File NffsFile
-#endif
-//#include <FS.h>
-//#include <SSD1306.h>
-//#include <i2crtc.h>
-#include <TimeLib.h>
 #include "defines.h"
 
 struct OptionStruct {
@@ -95,8 +86,8 @@ public:
 private:
   static byte st_pins[];
 #ifdef NRF52
-  static File log_file;
-  static File prog_file;
+//  static File log_file;
+//  static File prog_file;
 #endif
   static void setallpins(byte value);
   static void button_handler();
